@@ -56,6 +56,7 @@ static const char udhcpc_longopts[] ALIGN1 =
 	"broadcast\0"      No_argument       "B"
 	IF_FEATURE_UDHCPC_ARPING("arping\0"	Optional_argument "a")
 	IF_FEATURE_UDHCP_PORT("client-port\0"	Required_argument "P")
+	"skb-priority\0"   Required_argument "y"
 	;
 #endif
 /* Must match getopt32 option string order */
@@ -81,8 +82,9 @@ enum {
 	OPT_x = 1 << 18,
 	OPT_f = 1 << 19,
 	OPT_B = 1 << 20,
+	OPT_y = 1 << 21,
 /* The rest has variable bit positions, need to be clever */
-	OPTBIT_B = 20,
+	OPTBIT_B = 21,
 	USE_FOR_MMU(             OPTBIT_b,)
 	IF_FEATURE_UDHCPC_ARPING(OPTBIT_a,)
 	IF_FEATURE_UDHCP_PORT(   OPTBIT_P,)
@@ -1054,7 +1056,11 @@ static int udhcp_raw_socket(int ifindex)
 			log1("Can't set PACKET_AUXDATA on raw socket");
 	}
 
-	log1("Created raw socket");
+	if (skb_priority) {
+		setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &skb_priority, sizeof(skb_priority));
+	}
+
+	log1("created raw socket");
 
 	return fd;
 }
@@ -1152,7 +1158,7 @@ static void client_background(void)
 //usage:#define udhcpc_trivial_usage
 //usage:       "[-fbq"IF_UDHCP_VERBOSE("v")"RB]"IF_FEATURE_UDHCPC_ARPING(" [-a[MSEC]]")" [-t N] [-T SEC] [-A SEC/-n]\n"
 //usage:       "	[-i IFACE]"IF_FEATURE_UDHCP_PORT(" [-P PORT]")" [-s PROG] [-p PIDFILE]\n"
-//usage:       "	[-oC] [-r IP] [-V VENDOR] [-F NAME] [-x OPT:VAL]... [-O OPT]..."
+//usage:       "	[-oC] [-r IP] [-V VENDOR] [-F NAME] [-x OPT:VAL]... [-O OPT]... [-y SKBPRIORITY]"
 //usage:#define udhcpc_full_usage "\n"
 //usage:	IF_LONG_OPTS(
 //usage:     "\n	-i,--interface IFACE	Interface to use (default eth0)"
@@ -1187,6 +1193,7 @@ static void client_background(void)
 //usage:     "\n	-F,--fqdn NAME		Ask server to update DNS mapping for NAME"
 //usage:     "\n	-V,--vendorclass VENDOR	Vendor identifier (default 'udhcp VERSION')"
 //usage:     "\n	-C,--clientid-none	Don't send MAC as client identifier"
+//usage:     "\n	-y,--skb-priority	Set raw socket skb priority (default 0) [0-7]"
 //usage:	IF_UDHCP_VERBOSE(
 //usage:     "\n	-v			Verbose"
 //usage:	)
@@ -1224,6 +1231,7 @@ static void client_background(void)
 //usage:     "\n	-F NAME		Ask server to update DNS mapping for NAME"
 //usage:     "\n	-V VENDOR	Vendor identifier (default 'udhcp VERSION')"
 //usage:     "\n	-C		Don't send MAC as client identifier"
+//usage:     "\n	-y		Set raw socket skb priority (default 0) [0-7]"
 //usage:	IF_UDHCP_VERBOSE(
 //usage:     "\n	-v		Verbose"
 //usage:	)
@@ -1237,7 +1245,7 @@ int udhcpc_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int udhcpc_main(int argc UNUSED_PARAM, char **argv)
 {
 	uint8_t *message;
-	const char *str_V, *str_h, *str_F, *str_r;
+	const char *str_V, *str_h, *str_F, *str_r, *str_y;
 	IF_FEATURE_UDHCPC_ARPING(const char *str_a = "2000";)
 	IF_FEATURE_UDHCP_PORT(char *str_P;)
 	void *clientid_mac_ptr;
@@ -1264,12 +1272,13 @@ int udhcpc_main(int argc UNUSED_PARAM, char **argv)
 	client_config.interface = "eth0";
 	client_config.script = CONFIG_UDHCPC_DEFAULT_SCRIPT;
 	str_V = "udhcp "BB_VER;
+	skb_priority = 0;
 
 	/* Parse command line */
 	/* O,x: list; -T,-t,-A take numeric param */
 	opt_complementary = "O::x::T+:t+:A+" IF_UDHCP_VERBOSE(":vv") ;
 	IF_LONG_OPTS(applet_long_options = udhcpc_longopts;)
-	opt = getopt32(argv, "CV:H:h:F:i:np:qRr:s:T:t:SA:O:ox:fB"
+	opt = getopt32(argv, "CV:H:h:F:i:np:qRr:s:T:t:SA:O:ox:fBy:"
 		USE_FOR_MMU("b")
 		IF_FEATURE_UDHCPC_ARPING("a::")
 		IF_FEATURE_UDHCP_PORT("P:")
@@ -1280,6 +1289,7 @@ int udhcpc_main(int argc UNUSED_PARAM, char **argv)
 		, &discover_timeout, &discover_retries, &tryagain_timeout /* T,t,A */
 		, &list_O
 		, &list_x
+		, &str_y
 		IF_FEATURE_UDHCPC_ARPING(, &str_a)
 		IF_FEATURE_UDHCP_PORT(, &str_P)
 		IF_UDHCP_VERBOSE(, &dhcp_verbose)
@@ -1338,6 +1348,10 @@ int udhcpc_main(int argc UNUSED_PARAM, char **argv)
 		/* now it looks similar to udhcpd's config file line:
 		 * "optname optval", using the common routine: */
 		udhcp_str2optset(optstr, &client_config.options);
+	}
+
+	if (opt & OPT_y) {
+		skb_priority = atoi(str_y);
 	}
 
 	if (udhcp_read_interface(client_config.interface,
