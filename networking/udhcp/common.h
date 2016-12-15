@@ -17,6 +17,7 @@ PUSH_AND_SET_FUNCTION_VISIBILITY_TO_HIDDEN
 
 extern const uint8_t MAC_BCAST_ADDR[6] ALIGN2; /* six all-ones */
 
+int skb_priority;
 
 /*** DHCP packet ***/
 

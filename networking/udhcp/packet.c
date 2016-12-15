@@ -120,6 +120,10 @@ int FAST_FUNC udhcp_send_raw_packet(struct dhcp_packet *dhcp_pkt,
 		goto ret_msg;
 	}
 
+	if (skb_priority) {
+		setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &skb_priority, sizeof(skb_priority));
+	}
+
 	memset(&dest_sll, 0, sizeof(dest_sll));
 	memset(&packet, 0, offsetof(struct ip_udp_dhcp_packet, data));
 	packet.data = *dhcp_pkt; /* struct copy */
